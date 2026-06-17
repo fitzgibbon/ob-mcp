@@ -7,7 +7,7 @@
 ;; Version: 0.1
 ;; Package-Requires: ((emacs "30.1") (mcp "0"))
 ;; Keywords: tools, org, mcp, languages
-;; URL: https://github.com/nfitzgibbon/ob-mcp
+;; URL: https://github.com/fitzgibbon/ob-mcp
 
 ;; This program is free software: you can redistribute it and/or modify
 ;; it under the terms of the GNU General Public License as published by
@@ -98,6 +98,7 @@
 ;;; Code:
 
 (require 'cl-lib)
+(require 'seq)
 (require 'subr-x)
 (require 'mcp)
 (require 'mcp-hub)
@@ -115,12 +116,12 @@
   "Return a connected mcp.el connection for server NAME, connecting if needed.
 Servers are configured in mcp.el's `mcp-hub-servers'."
   (unless (assoc name mcp-hub-servers)
-    (error "ob-mcp: no server named %S in `mcp-hub-servers'" name))
+    (error "No MCP server named %S in `mcp-hub-servers'" name))
   (unless (mcp--server-running-p name)
     (mcp-hub-start-all-server nil (list name) t))
   (let ((conn (gethash name mcp-server-connections)))
     (unless (and conn (eq (mcp--status conn) 'connected))
-      (error "ob-mcp: could not connect to server %S" name))
+      (error "Could not connect to MCP server %S" name))
     conn))
 
 (defun ob-mcp-disconnect (name)
@@ -139,7 +140,7 @@ Servers are configured in mcp.el's `mcp-hub-servers'."
 ;;;; Public operations
 
 (defun ob-mcp--as-list (sequence)
-  "Coerce SEQUENCE (mcp.el returns JSON arrays as vectors) to a list."
+  "Coerce SEQUENCE to a list (mcp.el yields JSON arrays as vectors)."
   (append sequence nil))
 
 (defun ob-mcp-list-tools (name)
@@ -180,7 +181,7 @@ Servers are configured in mcp.el's `mcp-hub-servers'."
                                  (ob-mcp--as-list (plist-get result :content))))
                "\n")))
     (if (eq (plist-get result :isError) t)
-        (error "ob-mcp: tool reported an error: %s" text)
+        (error "MCP tool reported an error: %s" text)
       text)))
 
 (defun ob-mcp--resource-to-string (result)
@@ -197,7 +198,7 @@ Servers are configured in mcp.el's `mcp-hub-servers'."
    "\n"))
 
 (defun ob-mcp--prompt-to-string (result)
-  "Render a prompts/get RESULT plist into role-tagged text."
+  "Render a get-prompt RESULT plist into role-tagged text."
   (string-join
    (mapcar (lambda (m)
              (format "%s: %s"
@@ -235,7 +236,7 @@ Servers are configured in mcp.el's `mcp-hub-servers'."
 (defun ob-mcp--describe-table (tools tool)
   "Return an Org table describing TOOL's parameters, found in TOOLS."
   (let* ((spec (or (seq-find (lambda (tl) (equal (plist-get tl :name) tool)) tools)
-                   (error "ob-mcp: no tool named %S" tool)))
+                   (error "No tool named %S on this MCP server" tool)))
          (schema (plist-get spec :inputSchema))
          (required (ob-mcp--as-list (plist-get schema :required)))
          (rows nil))
@@ -259,19 +260,19 @@ Servers are configured in mcp.el's `mcp-hub-servers'."
                               (ob-mcp--first-line (plist-get r :description))))
                       resources))))
 
-(defun ob-mcp--prompts-table (prompts)
-  "Return an Org table of PROMPTS (a list of prompt plists)."
+(defun ob-mcp--prompts-table (prompt-list)
+  "Return an Org table of PROMPT-LIST (a list of prompt plists)."
   (cons '("Prompt" "Description")
         (cons 'hline
               (mapcar (lambda (p)
                         (list (plist-get p :name)
                               (ob-mcp--first-line (plist-get p :description))))
-                      prompts))))
+                      prompt-list))))
 
-(defun ob-mcp--describe-prompt-table (prompts prompt)
-  "Return an Org table describing PROMPT's arguments, found in PROMPTS."
-  (let ((spec (or (seq-find (lambda (p) (equal (plist-get p :name) prompt)) prompts)
-                  (error "ob-mcp: no prompt named %S" prompt))))
+(defun ob-mcp--describe-prompt-table (prompt-list prompt)
+  "Return an Org table describing PROMPT's arguments, found in PROMPT-LIST."
+  (let ((spec (or (seq-find (lambda (p) (equal (plist-get p :name) prompt)) prompt-list)
+                  (error "No prompt named %S on this MCP server" prompt))))
     (cons '("Argument" "Required" "Description")
           (cons 'hline
                 (mapcar (lambda (a)
@@ -292,7 +293,7 @@ nil), and PAYLOAD the trimmed remainder after the first line (or nil)."
          (rest (when newline (string-trim (substring trimmed (1+ newline)))))
          (tokens (split-string first-line "[ \t]+" t)))
     (when (null tokens)
-      (error "ob-mcp: empty source block; expected a command"))
+      (error "Empty MCP source block; expected a command"))
     (list (downcase (car tokens))
           (cadr tokens)
           (and rest (not (string-empty-p rest)) rest))))
@@ -300,12 +301,12 @@ nil), and PAYLOAD the trimmed remainder after the first line (or nil)."
 (defun ob-mcp--require-server (server command)
   "Return SERVER or signal that COMMAND needs a `:server' header."
   (or server
-      (error "ob-mcp: `%s' requires a :server header argument" command)))
+      (error "Command `%s' requires a :server header argument" command)))
 
 (defun ob-mcp--need (value command what)
   "Signal an error unless VALUE is non-nil; COMMAND needs WHAT."
   (unless value
-    (error "ob-mcp: `%s' requires %s" command what))
+    (error "Command `%s' requires %s" command what))
   value)
 
 (defun ob-mcp--parse-arguments (payload args-header)
@@ -343,7 +344,7 @@ plist and ON-ERROR takes (CODE MESSAGE).  BPARAMS are the block's header
 arguments.  Returns a placeholder shown until the real result arrives."
   (let ((head (org-babel-where-is-src-block-head)))
     (unless head
-      (error "ob-mcp: :async requires execution from within an Org source block"))
+      (error "Asynchronous execution requires an Org source block"))
     (let ((buffer (current-buffer))
           (marker (copy-marker head t))
           (result-params (or (cdr (assq :result-params bparams)) '("replace"))))
@@ -361,7 +362,8 @@ arguments.  Returns a placeholder shown until the real result arrives."
 
 (defun ob-mcp--run (params sync-fn async-starter render)
   "Render an operation synchronously, or asynchronously when PARAMS ask.
-SYNC-FN returns a result plist; ASYNC-STARTER is (lambda (ON-RESULT ON-ERROR))."
+SYNC-FN yields a result plist and RENDER turns it into Org output;
+ASYNC-STARTER is (lambda (ON-RESULT ON-ERROR)) for the async path."
   (if (ob-mcp--async-requested-p params)
       (ob-mcp--execute-async async-starter render params)
     (funcall render (funcall sync-fn))))
@@ -417,14 +419,14 @@ ob-mcp Commentary for the source-block grammar."
                       (lambda () (mcp-get-prompt conn argument args))
                       (lambda (ok err) (mcp-async-get-prompt conn argument args ok err))
                       #'ob-mcp--prompt-to-string)))
-      (_ (error (concat "ob-mcp: unknown command %S "
+      (_ (error (concat "Unknown MCP command %S "
                         "(try servers, tools, call, resources, prompts, get)")
                 command)))))
 
 ;;;###autoload
 (defun org-babel-prep-session:mcp (_session _params)
   "Sessions are not supported for `mcp' source blocks."
-  (error "ob-mcp: source blocks do not support sessions"))
+  (error "MCP source blocks do not support sessions"))
 
 (provide 'ob-mcp)
 ;;; ob-mcp.el ends here

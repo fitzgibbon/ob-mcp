@@ -1,0 +1,1 @@
+(ob-mcp :fetcher github :repo "fitzgibbon/ob-mcp")
