@@ -62,46 +62,91 @@ The first line is =COMMAND [ARGUMENT]=.  Any remaining lines form a
 JSON object used as call/prompt arguments.  The =:server= header
 selects the server; =:async t= runs the request in the background.
 
+A noun on its own lists; the same noun with an argument acts on that
+single item.  The examples carry =:exports both= so the =#+RESULTS:=
+are included when the Org document is exported.
+
+List the configured servers:
+
 #+begin_src org
-,#+begin_src mcp
-list-servers
+,#+begin_src mcp :exports both
+servers
 ,#+end_src
 
-,#+begin_src mcp :server filesystem
-list-tools
+,#+RESULTS:
+| Server     | Transport | Endpoint                                            | Connected |
+|------------+-----------+-----------------------------------------------------+-----------|
+| filesystem | stdio     | npx -y @modelcontextprotocol/server-filesystem /tmp | yes       |
+#+end_src
+
+List a server's tools, then describe one by naming it:
+
+#+begin_src org
+,#+begin_src mcp :server filesystem :exports both
+tools
 ,#+end_src
 
-,#+begin_src mcp :server filesystem
-describe read_file
+,#+RESULTS:
+| Tool           | Description                                     |
+|----------------+-------------------------------------------------|
+| read_file      | Read the complete contents of a file            |
+| list_directory | Get a detailed listing of a directory           |
+
+,#+begin_src mcp :server filesystem :exports both
+tools read_file
 ,#+end_src
 
-,#+begin_src mcp :server filesystem
+,#+RESULTS:
+| Parameter | Type   | Required | Description      |
+|-----------+--------+----------+------------------|
+| path      | string | yes      | Path to the file |
+#+end_src
+
+Call a tool — the JSON body is its arguments:
+
+#+begin_src org
+,#+begin_src mcp :server filesystem :exports both
 call read_file
-{"path": "/etc/hosts"}
+{"path": "/tmp/notes.txt"}
 ,#+end_src
 
-,#+begin_src mcp :server filesystem
-read-resource file:///etc/hosts
+,#+RESULTS:
+: Buy milk
+: Ship the release
+#+end_src
+
+Read a resource by URI, and render a prompt with =get=:
+
+#+begin_src org
+,#+begin_src mcp :server filesystem :exports both
+resources file:///tmp/notes.txt
 ,#+end_src
 
-,#+begin_src mcp :server assistant
-get-prompt summarize
+,#+RESULTS:
+: Buy milk
+: Ship the release
+
+,#+begin_src mcp :server assistant :exports both
+get summarize
 {"topic": "octopuses"}
 ,#+end_src
+
+,#+RESULTS:
+: user: Please summarize the latest on octopuses.
 #+end_src
 
 A =call= block returns the tool result's text and signals if the tool
-reports an error.  =get-prompt= renders the returned messages as
+reports an error.  =get= renders the returned prompt messages as
 =role: text=.  Arguments may also be supplied with the =:args= header
 as a JSON string.
 
 ** Asynchronous execution
 
-Add =:async t= to a =call=, =read-resource=, or =get-prompt= block.  It
-returns immediately with an =ob-mcp: pending…= placeholder; the real
-result replaces it when it arrives.  (A not-yet-connected server's
-handshake is performed synchronously the first time; only the command
-request itself is asynchronous.)
+Add =:async t= to a =call=, =get=, or single-resource =resources URI=
+block.  It returns immediately with an =ob-mcp: pending…= placeholder;
+the real result replaces it when it arrives.  (A not-yet-connected
+server's handshake is performed synchronously the first time; only the
+command request itself is asynchronous.)
 
 #+begin_src org
 ,#+begin_src mcp :server filesystem :async t
@@ -112,17 +157,17 @@ call slow_search
 
 * Commands reference
 
-| Command                                   | Needs =:server= | Returns       |
-|-------------------------------------------+-----------------+---------------|
-| =list-servers= / =servers=                | no              | table         |
-| =list-tools= / =tools=                    | yes             | table         |
-| =describe= / =describe-tool= TOOL         | yes             | table         |
-| =call= / =call-tool= TOOL                 | yes             | tool result   |
-| =list-resources= / =resources=            | yes             | table         |
-| =read-resource= / =read= URI              | yes             | resource text |
-| =list-prompts= / =prompts=                | yes             | table         |
-| =describe-prompt= PROMPT                  | yes             | table         |
-| =get-prompt= / =prompt= PROMPT            | yes             | prompt text   |
+| Command            | Needs =:server= | Returns                         |
+|--------------------+-----------------+---------------------------------|
+| =servers=          | no              | table of servers                |
+| =tools=            | yes             | table of tools                  |
+| =tools= NAME       | yes             | table of NAME's parameters      |
+| =call= NAME        | yes             | tool result (JSON body as args) |
+| =resources=        | yes             | table of resources              |
+| =resources= URI    | yes             | resource contents               |
+| =prompts=          | yes             | table of prompts                |
+| =prompts= NAME     | yes             | table of NAME's arguments       |
+| =get= NAME         | yes             | prompt text (JSON body as args) |
 
 * Elisp API
 

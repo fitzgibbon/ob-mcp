@@ -62,12 +62,23 @@
 ;; The `:server' header selects the server; `:async t' runs the request
 ;; without blocking Emacs and fills the result in when it arrives.
 ;;
+;; The commands.  A noun on its own lists; a noun with an argument acts
+;; on that one item.  `servers' lists configured servers.  `tools' lists
+;; tools, `tools NAME' describes one.  `prompts' lists prompts, `prompts
+;; NAME' describes one.  `resources' lists resources, `resources URI'
+;; reads one.  `call NAME' calls a tool and `get NAME' renders a prompt,
+;; with the JSON body as their arguments.
+;;
 ;;   #+begin_src mcp
-;;   list-servers
+;;   servers
 ;;   #+end_src
 ;;
 ;;   #+begin_src mcp :server filesystem
-;;   list-tools
+;;   tools
+;;   #+end_src
+;;
+;;   #+begin_src mcp :server filesystem
+;;   tools read_file
 ;;   #+end_src
 ;;
 ;;   #+begin_src mcp :server filesystem :async t
@@ -76,11 +87,11 @@
 ;;   #+end_src
 ;;
 ;;   #+begin_src mcp :server filesystem
-;;   read-resource file:///etc/hosts
+;;   resources file:///etc/hosts
 ;;   #+end_src
 ;;
 ;;   #+begin_src mcp :server assistant
-;;   get-prompt summarize
+;;   get summarize
 ;;   {"topic": "octopuses"}
 ;;   #+end_src
 
@@ -366,26 +377,31 @@ ob-mcp Commentary for the source-block grammar."
                (server (cdr (assq :server params)))
                (args-header (cdr (assq :args params))))
     (pcase command
-      ((or "list-servers" "servers")
+      ("servers"
        (ob-mcp--servers-table))
-      ((or "list-tools" "tools")
-       (ob-mcp--tools-table
-        (ob-mcp-list-tools (ob-mcp--require-server server command))))
-      ((or "describe" "describe-tool")
-       (ob-mcp--need argument command "a tool name")
-       (ob-mcp--describe-table
-        (ob-mcp-list-tools (ob-mcp--require-server server command)) argument))
-      ((or "list-resources" "resources")
-       (ob-mcp--resources-table
-        (ob-mcp-list-resources (ob-mcp--require-server server command))))
-      ((or "list-prompts" "prompts")
-       (ob-mcp--prompts-table
-        (ob-mcp-list-prompts (ob-mcp--require-server server command))))
-      ((or "describe-prompt")
-       (ob-mcp--need argument command "a prompt name")
-       (ob-mcp--describe-prompt-table
-        (ob-mcp-list-prompts (ob-mcp--require-server server command)) argument))
-      ((or "call" "call-tool")
+      ("tools"
+       ;; No argument lists the tools; a tool name describes its parameters.
+       (let ((tools (ob-mcp-list-tools (ob-mcp--require-server server command))))
+         (if argument
+             (ob-mcp--describe-table tools argument)
+           (ob-mcp--tools-table tools))))
+      ("prompts"
+       ;; No argument lists the prompts; a prompt name describes its arguments.
+       (let ((prompts (ob-mcp-list-prompts (ob-mcp--require-server server command))))
+         (if argument
+             (ob-mcp--describe-prompt-table prompts argument)
+           (ob-mcp--prompts-table prompts))))
+      ("resources"
+       ;; No argument lists the resources; a URI reads that resource.
+       (if argument
+           (let ((conn (ob-mcp-connection (ob-mcp--require-server server command))))
+             (ob-mcp--run params
+                          (lambda () (mcp-read-resource conn argument))
+                          (lambda (ok err) (mcp-async-read-resource conn argument ok err))
+                          #'ob-mcp--resource-to-string))
+         (ob-mcp--resources-table
+          (ob-mcp-list-resources (ob-mcp--require-server server command)))))
+      ("call"
        (ob-mcp--need argument command "a tool name")
        (let ((conn (ob-mcp-connection (ob-mcp--require-server server command)))
              (args (ob-mcp--parse-arguments payload args-header)))
@@ -393,14 +409,7 @@ ob-mcp Commentary for the source-block grammar."
                       (lambda () (mcp-call-tool conn argument args))
                       (lambda (ok err) (mcp-async-call-tool conn argument args ok err))
                       #'ob-mcp--content-to-string)))
-      ((or "read-resource" "read")
-       (ob-mcp--need argument command "a resource URI")
-       (let ((conn (ob-mcp-connection (ob-mcp--require-server server command))))
-         (ob-mcp--run params
-                      (lambda () (mcp-read-resource conn argument))
-                      (lambda (ok err) (mcp-async-read-resource conn argument ok err))
-                      #'ob-mcp--resource-to-string)))
-      ((or "get-prompt" "prompt")
+      ("get"
        (ob-mcp--need argument command "a prompt name")
        (let ((conn (ob-mcp-connection (ob-mcp--require-server server command)))
              (args (ob-mcp--parse-arguments payload args-header)))
@@ -408,9 +417,8 @@ ob-mcp Commentary for the source-block grammar."
                       (lambda () (mcp-get-prompt conn argument args))
                       (lambda (ok err) (mcp-async-get-prompt conn argument args ok err))
                       #'ob-mcp--prompt-to-string)))
-      (_ (error (concat "ob-mcp: unknown command %S (try list-servers, "
-                        "list-tools, describe, call, list-resources, "
-                        "read-resource, list-prompts, get-prompt)")
+      (_ (error (concat "ob-mcp: unknown command %S "
+                        "(try servers, tools, call, resources, prompts, get)")
                 command)))))
 
 ;;;###autoload

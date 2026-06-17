@@ -38,9 +38,9 @@ is zeroed to keep connects fast."
 ;;;; Unit tests (no connection)
 
 (ert-deftest ob-mcp-test-parse-body ()
-  (should (equal '("list-servers" nil nil) (ob-mcp--parse-body "list-servers")))
-  (should (equal '("list-tools" nil nil) (ob-mcp--parse-body "  list-tools  ")))
-  (should (equal '("describe" "read_file" nil) (ob-mcp--parse-body "describe read_file")))
+  (should (equal '("servers" nil nil) (ob-mcp--parse-body "servers")))
+  (should (equal '("tools" nil nil) (ob-mcp--parse-body "  tools  ")))
+  (should (equal '("tools" "read_file" nil) (ob-mcp--parse-body "tools read_file")))
   (should (equal '("call" "echo" "{\"text\": \"hi\"}")
                  (ob-mcp--parse-body "call echo\n{\"text\": \"hi\"}"))))
 
@@ -88,25 +88,28 @@ is zeroed to keep connects fast."
 (ert-deftest ob-mcp-test-execute-commands ()
   (ob-mcp-test--with-stdio
     (let ((srv '((:server . "mock"))))
-      (let ((table (org-babel-execute:mcp "list-servers" nil)))
+      (let ((table (org-babel-execute:mcp "servers" nil)))
         (should (equal '("Server" "Transport" "Endpoint" "Connected") (car table)))
         (should (assoc "mock" (cddr table))))
-      (should (assoc "echo" (cddr (org-babel-execute:mcp "list-tools" srv))))
-      (let ((d (org-babel-execute:mcp "describe add" srv)))
+      ;; `tools' lists; `tools NAME' describes.
+      (should (assoc "echo" (cddr (org-babel-execute:mcp "tools" srv))))
+      (let ((d (org-babel-execute:mcp "tools add" srv)))
         (should (equal '("Parameter" "Type" "Required" "Description") (car d)))
         (should (equal "yes" (nth 2 (assoc "a" (cddr d))))))
       (should (equal "echoed!"
                      (org-babel-execute:mcp "call echo\n{\"text\": \"echoed!\"}" srv)))
+      ;; `resources' lists; `resources URI' reads.
       (should (assoc "mem://greeting"
-                     (cddr (org-babel-execute:mcp "list-resources" srv))))
+                     (cddr (org-babel-execute:mcp "resources" srv))))
       (should (equal "Hello from MCP!"
-                     (org-babel-execute:mcp "read-resource mem://greeting" srv)))
-      (let ((p (org-babel-execute:mcp "describe-prompt greet" srv)))
+                     (org-babel-execute:mcp "resources mem://greeting" srv)))
+      ;; `prompts' lists; `prompts NAME' describes; `get NAME' renders.
+      (let ((p (org-babel-execute:mcp "prompts greet" srv)))
         (should (equal '("Argument" "Required" "Description") (car p)))
         (should (equal "yes" (nth 1 (assoc "who" (cddr p))))))
       (should (string-match-p
                "Hello, Zoe!"
-               (org-babel-execute:mcp "get-prompt greet\n{\"who\": \"Zoe\"}" srv))))))
+               (org-babel-execute:mcp "get greet\n{\"who\": \"Zoe\"}" srv))))))
 
 (ert-deftest ob-mcp-test-execute-errors ()
   (ob-mcp-test--with-stdio
