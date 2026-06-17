@@ -10,7 +10,7 @@ is the thin Org Babel layer on top: it turns source blocks into mcp.el
 calls and renders the results.  Source blocks can:
 
 - list configured MCP servers,
-- list and describe a server's tools/functions, and call them,
+- list and describe a server's tools, and call them,
 - list and read a server's resources, and
 - list, describe, and render a server's prompts.
 
@@ -115,7 +115,7 @@ call slow_search
 | Command                                   | Needs =:server= | Returns       |
 |-------------------------------------------+-----------------+---------------|
 | =list-servers= / =servers=                | no              | table         |
-| =list-tools= / =tools= / =list-functions= | yes             | table         |
+| =list-tools= / =tools=                    | yes             | table         |
 | =describe= / =describe-tool= TOOL         | yes             | table         |
 | =call= / =call-tool= TOOL                 | yes             | tool result   |
 | =list-resources= / =resources=            | yes             | table         |

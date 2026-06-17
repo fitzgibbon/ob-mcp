@@ -33,7 +33,7 @@
 ;; Source blocks can:
 ;;
 ;;   * list configured MCP servers,
-;;   * list and describe a server's tools/functions, and call them,
+;;   * list and describe a server's tools, and call them,
 ;;   * list and read a server's resources, and
 ;;   * list, describe and render a server's prompts.
 ;;
@@ -368,7 +368,7 @@ ob-mcp Commentary for the source-block grammar."
     (pcase command
       ((or "list-servers" "servers")
        (ob-mcp--servers-table))
-      ((or "list-tools" "tools" "list-functions" "functions")
+      ((or "list-tools" "tools")
        (ob-mcp--tools-table
         (ob-mcp-list-tools (ob-mcp--require-server server command))))
       ((or "describe" "describe-tool")
