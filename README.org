@@ -1,0 +1,150 @@
+#+TITLE: ob-mcp — Model Context Protocol support for Org Babel
+#+OPTIONS: toc:nil
+
+* Overview
+
+=ob-mcp= adds [[https://modelcontextprotocol.io/][Model Context Protocol]] (MCP) support to Org Babel.  The
+MCP client itself is [[https://github.com/lizqwerscott/mcp.el][mcp.el]], which handles the stdio and HTTP/SSE
+transports, OAuth bearer tokens, and capability negotiation.  =ob-mcp=
+is the thin Org Babel layer on top: it turns source blocks into mcp.el
+calls and renders the results.  Source blocks can:
+
+- list configured MCP servers,
+- list and describe a server's tools/functions, and call them,
+- list and read a server's resources, and
+- list, describe, and render a server's prompts.
+
+Requests run synchronously, or with =:async t= without blocking Emacs.
+
+* Installation
+
+Requires Emacs 30.1+ and [[https://github.com/lizqwerscott/mcp.el][mcp.el]] (available on MELPA; the =mcp=
+package bundles both =mcp= and =mcp-hub=).  Put =ob-mcp.el= on your
+=load-path=, then:
+
+#+begin_src emacs-lisp
+(require 'ob-mcp)
+(org-babel-do-load-languages
+ 'org-babel-load-languages
+ (append org-babel-load-languages '((mcp . t))))
+#+end_src
+
+* Configuration
+
+ob-mcp has *no configuration variables of its own*.  Servers are the
+ones you already define in mcp.el's =mcp-hub-servers=, and everything
+else is driven by source-block header arguments.
+
+#+begin_src emacs-lisp
+(setq mcp-hub-servers
+      '(("filesystem"
+         :command "npx"
+         :args ("-y" "@modelcontextprotocol/server-filesystem" "/tmp"))
+        ("remote"
+         :url "https://api.example.com/mcp"
+         :token "s3cr3t")))
+#+end_src
+
+A =:command= entry uses the stdio transport; a =:url= entry uses HTTP.
+For HTTP, =:token= supplies a bearer token — it may be a string, a
+variable, or a function, so you can plug in your own OAuth flow by
+handing back the current access token.  (The MCP OAuth 2.1
+authorization handshake itself is not automated; you supply the
+token.)  See the mcp.el documentation for the full set of
+=mcp-hub-servers= keys.
+
+Connections open lazily on first use and are reused; close them with
+=M-x ob-mcp-disconnect= / =M-x ob-mcp-disconnect-all=.
+
+* Source block grammar
+
+The first line is =COMMAND [ARGUMENT]=.  Any remaining lines form a
+JSON object used as call/prompt arguments.  The =:server= header
+selects the server; =:async t= runs the request in the background.
+
+#+begin_src org
+,#+begin_src mcp
+list-servers
+,#+end_src
+
+,#+begin_src mcp :server filesystem
+list-tools
+,#+end_src
+
+,#+begin_src mcp :server filesystem
+describe read_file
+,#+end_src
+
+,#+begin_src mcp :server filesystem
+call read_file
+{"path": "/etc/hosts"}
+,#+end_src
+
+,#+begin_src mcp :server filesystem
+read-resource file:///etc/hosts
+,#+end_src
+
+,#+begin_src mcp :server assistant
+get-prompt summarize
+{"topic": "octopuses"}
+,#+end_src
+#+end_src
+
+A =call= block returns the tool result's text and signals if the tool
+reports an error.  =get-prompt= renders the returned messages as
+=role: text=.  Arguments may also be supplied with the =:args= header
+as a JSON string.
+
+** Asynchronous execution
+
+Add =:async t= to a =call=, =read-resource=, or =get-prompt= block.  It
+returns immediately with an =ob-mcp: pending…= placeholder; the real
+result replaces it when it arrives.  (A not-yet-connected server's
+handshake is performed synchronously the first time; only the command
+request itself is asynchronous.)
+
+#+begin_src org
+,#+begin_src mcp :server filesystem :async t
+call slow_search
+{"query": "needle"}
+,#+end_src
+#+end_src
+
+* Commands reference
+
+| Command                                   | Needs =:server= | Returns       |
+|-------------------------------------------+-----------------+---------------|
+| =list-servers= / =servers=                | no              | table         |
+| =list-tools= / =tools= / =list-functions= | yes             | table         |
+| =describe= / =describe-tool= TOOL         | yes             | table         |
+| =call= / =call-tool= TOOL                 | yes             | tool result   |
+| =list-resources= / =resources=            | yes             | table         |
+| =read-resource= / =read= URI              | yes             | resource text |
+| =list-prompts= / =prompts=                | yes             | table         |
+| =describe-prompt= PROMPT                  | yes             | table         |
+| =get-prompt= / =prompt= PROMPT            | yes             | prompt text   |
+
+* Elisp API
+
+- =(ob-mcp-connection NAME)= — connected mcp.el connection, connecting if
+  needed.  Pass the result to mcp.el's own =mcp-call-tool=,
+  =mcp-read-resource=, =mcp-get-prompt=, etc. for programmatic access.
+- =(ob-mcp-list-tools NAME)= / =(ob-mcp-list-resources NAME)= / =(ob-mcp-list-prompts NAME)=.
+- =(ob-mcp-disconnect NAME)= / =(ob-mcp-disconnect-all)=.
+
+* Running the tests
+
+#+begin_src sh
+emacs --batch -Q -L . -l test/ob-mcp-test.el -f ert-run-tests-batch-and-exit
+#+end_src
+
+The suite drives ob-mcp end to end through mcp.el against a
+self-contained stdio mock server (=test/mock-mcp-server.el= over
+=test/mcp-engine.el=), covering tools, resources, prompts, and both
+synchronous and asynchronous execution.  mcp.el's HTTP/SSE transport is
+covered by mcp.el's own suite, so here it is only unit-tested at the
+spec-translation boundary.
+
+* License
+
+GPL-3.0-or-later.  See =LICENSE=.
